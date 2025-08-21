@@ -1,0 +1,254 @@
+//+------------------------------------------------------------------+
+//|                                                   3-wise-man.mq5 |
+//|                                  Copyright 2025, MetaQuotes Ltd. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2025, MetaQuotes Ltd."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+
+#include <Trade\Trade.mqh>
+CTrade trade;
+
+input int stoplossCandleCount = 1;
+input int trailingStopCandleCount = 1;
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---
+   //Alert("3-WISE-MAN INITIATED");
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+//double openPrice  = iOpen(_Symbol, PERIOD_H1, 1);
+//double highPrice  = iHigh(_Symbol, PERIOD_H1, 1);
+//double lowPrice   = iLow(_Symbol, PERIOD_H1, 1);
+//double closePrice = iClose(_Symbol, PERIOD_H1, 1);
+
+
+//-- getting candle for BUY signal
+   bool isFirstCandleBullish = iClose(_Symbol, PERIOD_H1, 1) - iOpen(_Symbol, PERIOD_H1, 1) > 0;
+   bool isSecondCandleBullish = iClose(_Symbol, PERIOD_H1, 2) - iOpen(_Symbol, PERIOD_H1, 2) > 0;
+   bool isThirdCandleBullish = iClose(_Symbol, PERIOD_H1, 3) - iOpen(_Symbol, PERIOD_H1, 3) > 0;
+
+//--- getting candle for BUY signal
+   bool isFirstCandleBearish = iClose(_Symbol, PERIOD_H1, 1) - iOpen(_Symbol, PERIOD_H1, 1) < 0;
+   bool isSecondCandleBearish = iClose(_Symbol, PERIOD_H1, 2) - iOpen(_Symbol, PERIOD_H1, 2) < 0;
+   bool isThirdCandleBearish = iClose(_Symbol, PERIOD_H1, 3) - iOpen(_Symbol, PERIOD_H1, 3) < 0;
+
+//-- checking BUY signal
+   bool buySignal = isFirstCandleBullish && isSecondCandleBullish && isThirdCandleBullish;
+
+//-- checking SELL signal
+   bool sellSignal = isFirstCandleBearish && isSecondCandleBearish && isThirdCandleBearish;
+
+   double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double risk_money = balance * 0.01;   // 1% risk
+   
+   double buyEntryPrice = ask;
+   double SellEntryPrice = bid;
+   
+   double buyStop_loss = buyEntryPrice * (1 - 0.01);   // 1% below entry
+   double buyTake_profit = buyEntryPrice * (1 + 0.03);   // 5% above entry
+   
+   double sellStopLoss   = SellEntryPrice * (1 + 0.01);   // 1% above entry
+   double sellTakeProfit = SellEntryPrice * (1 - 0.03);   // 5% below entry
+   
+   double buySlDistance = MathAbs(buyEntryPrice - buyStop_loss);
+   
+   double tick_value  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tick_size   = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double value_per_unit = tick_value / tick_size;
+   double loss_per_lot = buySlDistance * value_per_unit;
+   double lot_size = risk_money / loss_per_lot;
+   
+   double minLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   
+   lot_size = MathMax(minLot, MathMin(maxLot, lot_size));
+   lot_size = NormalizeDouble(lot_size / lotStep, 0) * lotStep;
+
+   Print(lot_size);
+   
+   double point  = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   
+   int lowPrice = iLowest(_Symbol,PERIOD_CURRENT,MODE_LOW,stoplossCandleCount,1);
+   int higPrice = iHighest(_Symbol,PERIOD_CURRENT,MODE_HIGH,stoplossCandleCount,1);
+      
+   double lowestPrice = iLow(_Symbol,PERIOD_CURRENT,lowPrice);
+   double highestPrice = iHigh(_Symbol,PERIOD_CURRENT,higPrice);
+   
+   //TrailingStop();
+
+   if(buySignal && PositionSelect(Symbol()) == false)
+     {
+     
+      double stoploss = lowestPrice;
+      
+      trade.Buy(lot_size, NULL, buyEntryPrice, stoploss, buyEntryPrice + (1000 * point));
+      Print("BUY");
+     };
+
+   if(sellSignal && PositionSelect(Symbol()) == false)
+     {
+     
+      double stoploss = highestPrice;
+      
+      trade.Sell(lot_size, NULL, SellEntryPrice, SellEntryPrice + (100 * point), SellEntryPrice - (100 * point));
+      Print("SELL");
+     };
+
+  };
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+void TrailingStop()
+{
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      string symbol = PositionGetSymbol(i);
+      if(!PositionSelect(symbol))
+         continue;
+
+      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double sl     = PositionGetDouble(POSITION_SL);
+      double tp     = PositionGetDouble(POSITION_TP);
+      double entry  = PositionGetDouble(POSITION_PRICE_OPEN);
+      double price  = (type == POSITION_TYPE_BUY) 
+                      ? SymbolInfoDouble(symbol, SYMBOL_BID)
+                      : SymbolInfoDouble(symbol, SYMBOL_ASK);
+
+      double point  = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      double breakevenDistance = 500 * point;
+      double lotsize = PositionGetDouble(POSITION_VOLUME);
+
+      // --------------------
+      // Step 1: Breakeven logic
+      // --------------------
+      if(type == POSITION_TYPE_BUY)
+      {
+         if(price - entry >= breakevenDistance && sl < entry)
+         {
+            double entryPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
+            //double buyStop_loss = entryPrice * (1 - 0.01);   // 1% below entry
+            //double buyTake_profit = buyEntryPrice * (1 + 0.02); 
+            trade.PositionModify(symbol, entry, tp);
+            //trade.Buy(lotsize,symbol,entryPrice,buyStop_loss);
+            Print("BUY moved SL to breakeven: ", entry);
+         }
+      }
+      else if(type == POSITION_TYPE_SELL)
+      {
+         if(entry - price >= breakevenDistance && (sl > entry || sl == 0))
+         {
+            trade.PositionModify(symbol, entry, tp);
+            Print("SELL moved SL to breakeven: ", entry);
+         }
+      }
+
+      // --------------------
+      // Step 2: Trailing Stop logic (only after breakeven or SL set)
+      // --------------------
+      int highest = iHighest(symbol, PERIOD_CURRENT, MODE_HIGH, trailingStopCandleCount, 1);
+      int lowest  = iLowest(symbol,  PERIOD_CURRENT, MODE_LOW,  trailingStopCandleCount, 1);
+
+      double newBuySl  = iLow(symbol, PERIOD_CURRENT, highest);   // 2 candles back low
+      double newSellSl = iHigh(symbol, PERIOD_CURRENT, highest);  // 2 candles back high
+
+      if(type == POSITION_TYPE_BUY)
+      {
+         if(sl >= entry && newBuySl > sl)   // only trail higher after breakeven
+         {
+            trade.PositionModify(symbol, newBuySl, tp);
+            Print("BUY Trailing stop moved to ", newBuySl);
+         }
+      }
+      else if(type == POSITION_TYPE_SELL)
+      {
+         if(sl <= entry && (newSellSl < sl || sl == entry))   // only trail lower after breakeven
+         {
+            trade.PositionModify(symbol, newSellSl, tp);
+            //PositionGetDouble(POS)
+            Print("SELL Trailing stop moved to ", newSellSl);
+         }
+      }
+   }
+}
+
+
+
+
+
+
+
+
+
+
+//void TrailingStop()
+//{
+//   int total = PositionsTotal();
+//   for(int i = 0; i < total; i++)
+//   {
+//      string symbol = PositionGetSymbol(i);
+//      if(!PositionSelect(symbol))
+//         continue;
+//
+//      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+//      double sl  = PositionGetDouble(POSITION_SL);
+//      double tp  = PositionGetDouble(POSITION_TP);
+//      
+//      int highest = iHighest(symbol, PERIOD_CURRENT,MODE_HIGH,trailingStopCandleCount,1);
+//      int lowest = iLowest(symbol, PERIOD_CURRENT, MODE_LOW, trailingStopCandleCount, 1);
+//
+//      double newBuySl  = iLow(_Symbol, PERIOD_CURRENT, highest);   // 2 candles back low
+//      double newSellSl = iHigh(_Symbol, PERIOD_CURRENT, highest);  // 2 candles back high
+//
+//      if(type == POSITION_TYPE_BUY)
+//      {
+//         if(sl < newBuySl)   // only move SL upwards
+//         {
+//            trade.PositionModify(symbol, newBuySl, tp);
+//            Print("BUY Trailing stop moved to ", newBuySl);
+//         }
+//      }
+//
+//      if(type == POSITION_TYPE_SELL)
+//      {
+//         if(sl > newSellSl || sl == 0)   // only move SL downwards
+//         {
+//            trade.PositionModify(symbol, newSellSl, tp);
+//            Print("SELL Trailing stop moved to ", newSellSl);
+//         }
+//      }
+//   }
+//}
+
+//+------------------------------------------------------------------+
