@@ -17,7 +17,7 @@ input int slowMa = 30;
 input int rsi = 14;
 input int ema = 200;
 input int rsiOverBought = 70;
-input int rsiOverSold = 20;
+input int rsiOverSold = 30;
 input int slPoint = 150;
 input int tpPoint = 500;
 
@@ -46,7 +46,7 @@ void OnTick()
 //---
      int fastMA = iMA(_Symbol,PERIOD_CURRENT,fastMa,0,MODE_SMA,PRICE_CLOSE);
      int slowMA = iMA(_Symbol, PERIOD_CURRENT,slowMa,0,MODE_SMA,PRICE_CLOSE);
-     int RSI = iRSI(_Symbol,PERIOD_CURRENT,rsi,PRICE_CLOSE);
+     int rsiHandle = iRSI(_Symbol,PERIOD_CURRENT,rsi,PRICE_CLOSE);
      int EMA200 = iMA(_Symbol, PERIOD_CURRENT,ema,0,MODE_EMA,PRICE_CLOSE);
      //int RSIMa = iMA(_Symbol, PERIOD_CURRENT,slowMa,0,MODE_SMA,fastMA);
      
@@ -56,15 +56,15 @@ void OnTick()
      CopyBuffer(fastMA,0,0,3,fastMaBuffer);
      CopyBuffer(slowMA,0,0,3,slowMaBuffer);
      CopyBuffer(EMA200,0,0,3,emaBuffer);
-     CopyBuffer(RSI,0,0,1,rsiBuffer);
+     CopyBuffer(rsiHandle,0,0,1,rsiBuffer);
      
      double closePrice = iClose(_Symbol,PERIOD_CURRENT,1);
      
      bool uptrend = closePrice > emaBuffer[1];
      bool downtrend = closePrice < emaBuffer[1];
      
-     bool buySignal = rsiBuffer[0] > 70 && fastMaBuffer[2] > slowMaBuffer[2];
-     bool sellSignal = rsiBuffer[0] < 20 && fastMaBuffer[2] > slowMaBuffer[2];
+     bool sellSignal = rsiBuffer[0] > rsiOverBought && fastMaBuffer[2] > slowMaBuffer[2];
+     bool buySignal = rsiBuffer[0] < rsiOverSold && fastMaBuffer[2] < slowMaBuffer[2];
      
      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
      
@@ -97,7 +97,7 @@ void OnTick()
          double stoploss = entryPrice + stoploss;
          double takeProfit = entryPrice - takeProfit;
          
-         trade.Sell(0.1,NULL,entryPrice,stoploss,takeProfit);
+         trade.Sell(0.1,NULL,0,stoploss,takeProfit);
          
       }
       
